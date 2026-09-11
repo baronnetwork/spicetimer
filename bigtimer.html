@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Timer</title>
+<link rel="icon" href="./favico.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Inter:wght@400;600&display=swap">
+<style>
+:root {
+  --bg:         #000;
+  --digit:      #fff;
+  --glow:       #00ff41;
+  --glow-dim:   rgba(0,255,65,0.12);
+  --surface:    #141414;
+  --border:     #2e2e2e;
+  --muted:      #888;
+  --faint:      #444;
+  --start-bg:   #f0b429;
+  --start-fg:   #000;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--digit);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-block: 32px;
+  padding-inline: 16px;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* ── Timer display ── */
+.timer-row {
+  display: flex;
+  align-items: center;
+  gap: clamp(6px, 2vw, 24px);
+}
+
+.unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.digit-display {
+  font-family: 'Orbitron', 'Courier New', monospace;
+  font-size: clamp(72px, 20vw, 240px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--digit);
+  text-shadow:
+    0 0 18px var(--glow),
+    0 0 55px var(--glow-dim);
+  font-variant-numeric: tabular-nums;
+  min-width: 2ch;
+  text-align: center;
+  transition: color 0.3s, text-shadow 0.3s;
+}
+
+.colon {
+  font-family: 'Orbitron', 'Courier New', monospace;
+  font-size: clamp(52px, 14vw, 180px);
+  font-weight: 700;
+  color: var(--digit);
+  text-shadow: 0 0 18px var(--glow), 0 0 55px var(--glow-dim);
+  align-self: center;
+  line-height: 1;
+  transition: color 0.3s;
+}
+
+/* ── Adjust buttons ── */
+.adj {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  width: clamp(40px, 8vw, 56px);
+  height: 34px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+.adj:hover  { background: #222; border-color: #555; color: #ccc; }
+.adj:active { background: #2a2a2a; }
+
+.adj-label {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  text-transform: uppercase;
+}
+
+/* ── Main controls ── */
+.controls {
+  margin-top: clamp(24px, 4vh, 52px);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.start-btn {
+  background: var(--start-bg);
+  color: var(--start-fg);
+  border: none;
+  border-radius: 8px;
+  padding: 14px 44px;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  min-width: 120px;
+}
+.start-btn:hover  { opacity: 0.88; }
+.start-btn:active { opacity: 0.72; }
+.start-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.reset-btn {
+  background: var(--surface);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 28px;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.reset-btn:hover { background: #1e1e1e; color: #ccc; }
+
+/* ── Progress bar ── */
+.progress-wrap {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 5px;
+  background: #0a0a0a;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--glow);
+  box-shadow: 0 0 10px var(--glow);
+  width: 100%;
+}
+
+/* ── Done state ── */
+body.done .digit-display,
+body.done .colon {
+  color: var(--glow);
+  text-shadow:
+    0 0 30px var(--glow),
+    0 0 90px rgba(0,255,65,0.3);
+}
+
+body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
+
+/* ── Responsive ── */
+@media (max-width: 480px) {
+  .adj { width: 38px; height: 30px; font-size: 14px; }
+  .controls { flex-direction: column; gap: 10px; }
+  .start-btn, .reset-btn { width: 100%; justify-content: center; }
+}
+
+/* ── Toggle bar ── */
+.toggle-bar {
+  position: fixed;
+  bottom: 5px;
+  left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(16px, 3vw, 36px);
+  padding: 10px 20px;
+  background: #0d0d0d;
+  border-top: 1px solid #1c1c1c;
+  flex-wrap: wrap;
+}
+
+.tog-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.tog-label:hover { color: #bbb; }
+
+.tog-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.tog-track {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  background: #333;
+  border-radius: 11px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.tog-input:checked + .tog-track { background: #3b82f6; }
+
+.tog-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.tog-input:checked + .tog-track .tog-thumb {
+  transform: translateX(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .digit-display, .tog-track, .tog-thumb { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="timer-row">
+  <div class="unit">
+    <button class="adj" id="mm-plus" aria-label="Add 1 minute">+</button>
+    <span class="adj-label">min</span>
+    <div class="digit-display" id="mm">01</div>
+    <button class="adj" id="mm-minus" aria-label="Remove 1 minute">−</button>
+  </div>
+
+  <div class="colon" aria-hidden="true">:</div>
+
+  <div class="unit">
+    <button class="adj" id="ss-plus" aria-label="Add 5 seconds">+</button>
+    <span class="adj-label">sec</span>
+    <div class="digit-display" id="ss">00</div>
+    <button class="adj" id="ss-minus" aria-label="Remove 5 seconds">−</button>
+  </div>
+</div>
+
+<div class="controls">
+  <button class="start-btn" id="start-btn">Start</button>
+  <button class="reset-btn" id="reset-btn">Reset</button>
+</div>
+
+<div class="toggle-bar">
+  <label class="tog-label">
+    <input type="checkbox" class="tog-input" id="tog-gong" checked>
+    <span class="tog-track"><span class="tog-thumb"></span></span>
+    Play Gong at End
+  </label>
+  <label class="tog-label">
+    <input type="checkbox" class="tog-input" id="tog-ticking" checked>
+    <span class="tog-track"><span class="tog-thumb"></span></span>
+    Play Ticking While Waiting
+  </label>
+  <label class="tog-label">
+    <input type="checkbox" class="tog-input" id="tog-notify">
+    <span class="tog-track"><span class="tog-thumb"></span></span>
+    Browser Notification
+  </label>
+</div>
+
+<div class="progress-wrap" aria-hidden="true">
+  <div class="progress-fill" id="progress-fill"></div>
+</div>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search);
+  const _m = parseInt(params.get('minutes'), 10);
+  const initMinutes = Number.isFinite(_m) && _m >= 0 && _m <= 99 ? _m : 1;
+
+  let totalSeconds  = initMinutes * 60;
+  let startSeconds  = totalSeconds;
+  let running            = false;
+  let ticker             = null;
+  let flasher            = null;
+  let flashVisHandler    = null;
+
+  const mmEl       = document.getElementById('mm');
+  const ssEl       = document.getElementById('ss');
+  const startBtn   = document.getElementById('start-btn');
+  const resetBtn   = document.getElementById('reset-btn');
+  const progressEl = document.getElementById('progress-fill');
+
+  const togGong    = document.getElementById('tog-gong');
+  const togTicking = document.getElementById('tog-ticking');
+  const togNotify  = document.getElementById('tog-notify');
+
+  const tickingAudio = new Audio('./clock-ticking.mp3');
+  tickingAudio.loop  = true;
+
+  function startTicking() {
+    if (!togTicking.checked) return;
+    tickingAudio.currentTime = 0;
+    tickingAudio.play().catch(() => {});
+  }
+  function stopTicking() {
+    tickingAudio.pause();
+    tickingAudio.currentTime = 0;
+  }
+
+  togTicking.addEventListener('change', () => {
+    if (togTicking.checked && running) startTicking();
+    else stopTicking();
+  });
+
+  togNotify.addEventListener('change', async () => {
+    if (!togNotify.checked) return;
+    if (Notification.permission === 'granted') return;
+    if (Notification.permission === 'denied') {
+      togNotify.checked = false;
+      return;
+    }
+    const result = await Notification.requestPermission();
+    if (result !== 'granted') togNotify.checked = false;
+  });
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  function render() {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    mmEl.textContent = pad(m);
+    ssEl.textContent = pad(s);
+    progressEl.style.width = startSeconds > 0
+      ? `${(totalSeconds / startSeconds) * 100}%`
+      : '0%';
+    if (!document.body.classList.contains('done')) {
+      document.title = `${pad(m)}:${pad(s)} — Big Timer`;
+    }
+  }
+
+  function stopTicker() {
+    clearInterval(ticker);
+    ticker   = null;
+    running  = false;
+    startBtn.textContent = 'Start';
+    startBtn.disabled    = false;
+    stopTicking();
+  }
+
+  function playDone() {
+    if (!togGong.checked) return;
+    const mp3 = new Audio('./time-is-up.mp3');
+    mp3.play().catch(() => {
+      // Web Audio fallback: four quick beeps
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [880, 1100, 880, 1320].forEach((freq, i) => {
+          const osc  = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const t0   = ctx.currentTime + i * 0.28;
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.28, t0);
+          gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.22);
+          osc.connect(gain).connect(ctx.destination);
+          osc.start(t0);
+          osc.stop(t0 + 0.22);
+        });
+      } catch (_) {}
+    });
+  }
+
+  function flashTab() {
+    clearInterval(flasher);
+    if (flashVisHandler) document.removeEventListener('visibilitychange', flashVisHandler);
+
+    let ticks = 0;
+    const tick = () => {
+      document.title = ticks % 2 === 0 ? 'Time' : 'Up';
+      ticks++;
+    };
+
+    tick();
+    flasher = setInterval(tick, 1000);
+
+    flashVisHandler = () => {
+      if (document.visibilityState === 'visible' && flasher) {
+        clearInterval(flasher);
+        tick();
+        flasher = setInterval(tick, 1000);
+      }
+    };
+    document.addEventListener('visibilitychange', flashVisHandler);
+  }
+
+  function stopFlash() {
+    clearInterval(flasher);
+    flasher = null;
+    if (flashVisHandler) {
+      document.removeEventListener('visibilitychange', flashVisHandler);
+      flashVisHandler = null;
+    }
+  }
+
+  function onDone() {
+    totalSeconds = 0;
+    render();
+    stopTicker();
+    startBtn.disabled = true;
+    document.body.classList.add('done');
+    document.title = '🔴 Time is up!';
+    playDone();
+    flashTab();
+  }
+
+  function tick() {
+    totalSeconds--;
+    render();
+    if (totalSeconds <= 0) onDone();
+  }
+
+  function startTimer() {
+    if (running) {
+      stopTicker();
+      return;
+    }
+    if (totalSeconds <= 0) return;
+    document.body.classList.remove('done');
+    running              = true;
+    startBtn.textContent = 'Pause';
+    startTicking();
+    ticker               = setInterval(tick, 1000);
+  }
+
+  function resetTimer() {
+    stopTicker();
+    stopFlash();
+    document.body.classList.remove('done');
+    totalSeconds = startSeconds;
+    render();
+  }
+
+  function adjustTime(delta) {
+    totalSeconds  = Math.max(0, Math.min(99 * 60 + 59, totalSeconds + delta));
+    startSeconds  = totalSeconds;
+    if (!running) {
+      document.body.classList.remove('done');
+      startBtn.disabled = false;
+    }
+    render();
+  }
+
+  startBtn.addEventListener('click', startTimer);
+  resetBtn.addEventListener('click', resetTimer);
+  document.getElementById('mm-plus') .addEventListener('click', () => adjustTime(60));
+  document.getElementById('mm-minus').addEventListener('click', () => adjustTime(-60));
+  document.getElementById('ss-plus') .addEventListener('click', () => adjustTime(5));
+  document.getElementById('ss-minus').addEventListener('click', () => adjustTime(-5));
+
+  render();
+  if (params.get('autostart') === 'true') startTimer();
+})();
+</script>
+</body>
+</html>
