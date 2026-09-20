@@ -38,6 +38,23 @@ body {
   overflow: hidden;
 }
 
+#chaos-trails, #chaos-bodies {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+#chaos-trails.on, #chaos-bodies.on { opacity: 1; }
+
+.timer-row, .controls, .toggle-bar, .progress-wrap {
+  position: relative;
+  z-index: 1;
+}
+
 /* ── Timer display ── */
 .timer-row {
   display: flex;
@@ -255,6 +272,9 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
 </head>
 <body>
 
+<canvas id="chaos-trails" aria-hidden="true"></canvas>
+<canvas id="chaos-bodies" aria-hidden="true"></canvas>
+
 <div class="timer-row">
   <div class="unit">
     <button class="adj" id="mm-plus" aria-label="Add 1 minute">+</button>
@@ -294,6 +314,11 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
     <span class="tog-track"><span class="tog-thumb"></span></span>
     Browser Notification
   </label>
+  <label class="tog-label">
+    <input type="checkbox" class="tog-input" id="tog-chaos" checked>
+    <span class="tog-track"><span class="tog-thumb"></span></span>
+    Three-Body Chaos
+  </label>
 </div>
 
 <div class="progress-wrap" aria-hidden="true">
@@ -328,6 +353,178 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
   const togGong    = document.getElementById('tog-gong');
   const togTicking = document.getElementById('tog-ticking');
   const togNotify  = document.getElementById('tog-notify');
+  const togChaos   = document.getElementById('tog-chaos');
+
+  const trailsCanvas = document.getElementById('chaos-trails');
+  const bodiesCanvas = document.getElementById('chaos-bodies');
+  const tctx = trailsCanvas.getContext('2d');
+  const bctx = bodiesCanvas.getContext('2d');
+  let bodies = [];
+  let particles = [];
+  let chaosRAF = null;
+  let chaosProgress = 0;
+  let flash = 0;
+  const STAR_COLORS = [[255,90,90],[110,170,255],[255,190,80]];
+  const G = 1.0;
+  const DT = 0.006;
+  const SUBSTEPS = 14;
+
+  function fitChaos() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    for (const c of [trailsCanvas, bodiesCanvas]) {
+      c.width  = innerWidth  * dpr;
+      c.height = innerHeight * dpr;
+    }
+    tctx.setTransform(dpr,0,0,dpr,0,0);
+    bctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', fitChaos);
+  fitChaos();
+
+  function toScreen(x, y) {
+    const s = Math.min(innerWidth, innerHeight) * 0.24;
+    return [innerWidth/2 + x*s, innerHeight/2 + y*s];
+  }
+
+  function initBodies() {
+    // Chenciner-Montgomery figure-8, exact ICs
+    bodies = [
+      {x: 0.97000436, y:-0.24308753, vx: 0.4662036850, vy: 0.4323657300, m:1, ci:0},
+      {x:-0.97000436, y: 0.24308753, vx: 0.4662036850, vy: 0.4323657300, m:1, ci:1},
+      {x: 0.0,        y: 0.0,        vx:-0.9324073700, vy:-0.8647314600, m:1, ci:2},
+    ];
+    particles = [];
+    flash = 0;
+    tctx.clearRect(0,0,innerWidth,innerHeight);
+    bctx.clearRect(0,0,innerWidth,innerHeight);
+  }
+
+  function accel(state) {
+    const ax = [0,0,0], ay = [0,0,0];
+    const soft2 = 0.004;
+    for (let i=0; i<3; i++) for (let j=0; j<3; j++) {
+      if (i===j) continue;
+      const dx = state[j].x - state[i].x;
+      const dy = state[j].y - state[i].y;
+      const r2 = dx*dx + dy*dy + soft2;
+      const inv3 = 1/(r2*Math.sqrt(r2));
+      ax[i] += G * state[j].m * dx * inv3;
+      ay[i] += G * state[j].m * dy * inv3;
+    }
+    return {ax, ay};
+  }
+
+  function stepPhysics() {
+    const a1 = accel(bodies);
+    for (let i=0; i<3; i++) {
+      bodies[i].x  += bodies[i].vx * DT + 0.5 * a1.ax[i] * DT * DT;
+      bodies[i].y  += bodies[i].vy * DT + 0.5 * a1.ay[i] * DT * DT;
+    }
+    const a2 = accel(bodies);
+    const noise = chaosProgress * chaosProgress * 0.0025;
+    for (let i=0; i<3; i++) {
+      bodies[i].vx += 0.5 * (a1.ax[i] + a2.ax[i]) * DT;
+      bodies[i].vy += 0.5 * (a1.ay[i] + a2.ay[i]) * DT;
+      if (noise > 0) {
+        bodies[i].vx += (Math.random()-0.5) * noise;
+        bodies[i].vy += (Math.random()-0.5) * noise;
+      }
+    }
+  }
+
+  function chaosFrame() {
+    // trails: substep, draw segment, no clear
+    tctx.lineWidth = 1.1;
+    tctx.lineCap = 'round';
+    for (let s=0; s<SUBSTEPS; s++) {
+      const prev = bodies.map(b => toScreen(b.x, b.y));
+      stepPhysics();
+      const curr = bodies.map(b => toScreen(b.x, b.y));
+      for (let i=0; i<3; i++) {
+        const [r,g,bl] = STAR_COLORS[i];
+        tctx.strokeStyle = `rgba(${r},${g},${bl},0.55)`;
+        tctx.beginPath();
+        tctx.moveTo(prev[i][0], prev[i][1]);
+        tctx.lineTo(curr[i][0], curr[i][1]);
+        tctx.stroke();
+      }
+    }
+
+    // bodies: clear + draw fresh
+    bctx.clearRect(0,0,innerWidth,innerHeight);
+    for (let i=0; i<bodies.length; i++) {
+      const [r,g,bl] = STAR_COLORS[i];
+      const [sx,sy] = toScreen(bodies[i].x, bodies[i].y);
+      const rad = 6;
+      const grad = bctx.createRadialGradient(sx,sy,0, sx,sy, rad*2.5);
+      grad.addColorStop(0,   `rgba(${r},${g},${bl},1)`);
+      grad.addColorStop(0.4, `rgba(${r},${g},${bl},0.6)`);
+      grad.addColorStop(1,   `rgba(${r},${g},${bl},0)`);
+      bctx.fillStyle = grad;
+      bctx.beginPath();
+      bctx.arc(sx, sy, rad*2.5, 0, Math.PI*2);
+      bctx.fill();
+    }
+
+    // particles
+    particles = particles.filter(p => p.life > 0);
+    for (const p of particles) {
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.985; p.vy *= 0.985;
+      p.life -= 0.012;
+      bctx.fillStyle = `rgba(${p.r},${p.g},${p.b},${p.life})`;
+      bctx.fillRect(p.x, p.y, 3, 3);
+    }
+
+    if (flash > 0) {
+      bctx.fillStyle = `rgba(255,255,255,${flash})`;
+      bctx.fillRect(0,0,innerWidth,innerHeight);
+      tctx.fillStyle = `rgba(255,255,255,${flash})`;
+      tctx.fillRect(0,0,innerWidth,innerHeight);
+      flash -= 0.025;
+    }
+
+    chaosRAF = requestAnimationFrame(chaosFrame);
+  }
+
+  function startChaos() {
+    if (!togChaos.checked || chaosRAF) return;
+    initBodies();
+    trailsCanvas.classList.add('on');
+    bodiesCanvas.classList.add('on');
+    chaosFrame();
+  }
+
+  function stopChaos() {
+    if (chaosRAF) cancelAnimationFrame(chaosRAF);
+    chaosRAF = null;
+    trailsCanvas.classList.remove('on');
+    bodiesCanvas.classList.remove('on');
+    tctx.clearRect(0,0,innerWidth,innerHeight);
+    bctx.clearRect(0,0,innerWidth,innerHeight);
+    particles = []; bodies = []; chaosProgress = 0;
+  }
+
+  function boomChaos() {
+    if (!chaosRAF) return;
+    flash = 1;
+    tctx.clearRect(0,0,innerWidth,innerHeight);
+    for (const b of bodies) {
+      const [r,g,bl] = STAR_COLORS[b.ci];
+      const [sx,sy] = toScreen(b.x, b.y);
+      for (let k=0; k<240; k++) {
+        const a = Math.random()*Math.PI*2;
+        const s = Math.random()*9 + 2;
+        particles.push({x:sx, y:sy, vx:Math.cos(a)*s, vy:Math.sin(a)*s, life:1, r, g, b:bl});
+      }
+    }
+    bodies = [];
+  }
+
+  togChaos.addEventListener('change', () => {
+    if (!togChaos.checked) stopChaos();
+    else if (running) startChaos();
+  });
 
   const tickingAudio = new Audio('./clock-ticking.mp3');
   tickingAudio.loop  = true;
@@ -368,6 +565,9 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
     progressEl.style.width = startSeconds > 0
       ? `${(totalSeconds / startSeconds) * 100}%`
       : '0%';
+    if (running && startSeconds > 0) {
+      chaosProgress = 1 - totalSeconds / startSeconds;
+    }
     if (!document.body.classList.contains('done')) {
       document.title = `${pad(m)}:${pad(s)} — Big Timer`;
     }
@@ -457,6 +657,8 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
     playDone();
     fireNotification();
     flashTab();
+    boomChaos();
+    setTimeout(stopChaos, 3000);
   }
 
   function tick() {
@@ -476,12 +678,14 @@ body.done .start-btn { opacity: 0.35; cursor: not-allowed; }
     running              = true;
     startBtn.textContent = 'Pause';
     startTicking();
+    startChaos();
     ticker               = setInterval(tick, 1000);
   }
 
   function resetTimer() {
     stopTicker();
     stopFlash();
+    stopChaos();
     document.body.classList.remove('done');
     totalSeconds = startSeconds;
     render();
